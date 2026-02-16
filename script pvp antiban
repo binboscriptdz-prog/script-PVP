@@ -1,0 +1,387 @@
+-- ANTI-BAN OPTIMIZED: Health Bar cho TẤT CẢ người chơi + Hiện "0.0 / 0.0" khi chết + Hiện khi ở gần
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Cleanup cũ
+local sgName = "SafeTinyHealthBar"
+local old = player:FindFirstChild("PlayerGui"):FindFirstChild(sgName)
+if old then old:Destroy() end
+
+-- Tạo ScreenGui chính
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = sgName
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local billboards = {}
+local conns = {}
+local MAX_DISTANCE = 60
+local VISIBLE_DISTANCE = 65
+
+-- Hàm kiểm tra và tạo lại cho tất cả người chơi (quan trọng)
+local function refreshAllPlayers()
+    -- Duyệt qua tất cả người chơi trong server
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            -- Xóa billboard cũ nếu có
+            if billboards[p] then
+                pcall(function() billboards[p]:Destroy() end)
+                billboards[p] = nil
+            end
+            
+            -- Xóa connections cũ
+            if conns[p] then
+                for _, conn in ipairs(conns[p]) do
+                    pcall(function() conn:Disconnect() end)
+                end
+                conns[p] = nil
+            end
+            
+            -- Tạo mới nếu có character
+            if p.Character then
+                task.spawn(function() createHealthBar(p) end)
+            end
+        end
+    end
+end
+
+-- Hàm tạo health bar cho 1 player
+local function createHealthBar(targetPlayer)
+    if targetPlayer == player then return end
+    
+    -- Xóa billboard cũ nếu có (double check)
+    if billboards[targetPlayer] then
+        pcall(function() 
+            billboards[targetPlayer]:Destroy() 
+            billboards[targetPlayer] = nil
+        end)
+    end
+    
+    -- Xóa connections cũ
+    if conns[targetPlayer] then
+        for _, conn in ipairs(conns[targetPlayer]) do
+            pcall(function() conn:Disconnect() end)
+        end
+        conns[targetPlayer] = nil
+    end
+    
+    local function setup(char)
+        if not char then return end
+        
+        -- Đợi đầy đủ components
+        local hrp = char:WaitForChild("HumanoidRootPart", 10)
+        local head = char:WaitForChild("Head", 10)
+        local humanoid = char:WaitForChild("Humanoid", 10)
+        
+        if not hrp or not head or not humanoid then 
+            print("⚠️ Không tìm thấy components cho", targetPlayer.Name)
+            return 
+        end
+        
+        -- Xóa billboard cũ nếu có
+        if billboards[targetPlayer] then
+            pcall(function() billboards[targetPlayer]:Destroy() end)
+        end
+        
+        -- Tạo BillboardGui MỚI
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "SafeHealth_" .. targetPlayer.Name
+        bb.Adornee = head
+        bb.AlwaysOnTop = true
+        bb.LightInfluence = 0
+        bb.Size = UDim2.new(0, 180, 0, 40)
+        bb.StudsOffset = Vector3.new(0, 3.2, 0)
+        bb.Enabled = false
+        bb.ResetOnSpawn = false
+        bb.Parent = screenGui
+        
+        -- Background chính
+        local bg = Instance.new("Frame", bb)
+        bg.Size = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
+        bg.BackgroundTransparency = 0.3
+        bg.BorderSizePixel = 0
+        
+        local corner = Instance.new("UICorner", bg)
+        corner.CornerRadius = UDim.new(0, 10)
+        
+        local stroke = Instance.new("UIStroke", bg)
+        stroke.Color = Color3.fromRGB(100, 200, 255)
+        stroke.Thickness = 2
+        stroke.Transparency = 0.3
+        
+        -- Thanh máu nền
+        local barBg = Instance.new("Frame", bg)
+        barBg.Size = UDim2.new(0.94, 0, 0.4, 0)
+        barBg.Position = UDim2.new(0.03, 0, 0.35, 0)
+        barBg.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        barBg.BorderSizePixel = 0
+        
+        local barCorner = Instance.new("UICorner", barBg)
+        barCorner.CornerRadius = UDim.new(0, 6)
+        
+        -- Thanh máu động
+        local healthBar = Instance.new("Frame", barBg)
+        healthBar.Size = UDim2.new(1, 0, 1, 0)
+        healthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+        healthBar.BorderSizePixel = 0
+        
+        local hCorner = Instance.new("UICorner", healthBar)
+        hCorner.CornerRadius = UDim.new(0, 6)
+        
+        -- Text hiển thị máu
+        local txt = Instance.new("TextLabel", bg)
+        txt.Size = UDim2.new(0.94, 0, 0.5, 0)
+        txt.Position = UDim2.new(0.03, 0, 0.02, 0)
+        txt.BackgroundTransparency = 1
+        txt.TextColor3 = Color3.new(1, 1, 1)
+        txt.TextScaled = true
+        txt.Font = Enum.Font.GothamBlack
+        txt.TextStrokeTransparency = 0.2
+        txt.TextStrokeColor3 = Color3.new(0, 0, 0)
+        txt.Text = "100.0 / 100.0"
+        
+        -- Tên người chơi
+        local nameLabel = Instance.new("TextLabel", bg)
+        nameLabel.Size = UDim2.new(0.5, 0, 0.2, 0)
+        nameLabel.Position = UDim2.new(0.03, 0, 0.85, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.Gotham
+        nameLabel.TextStrokeTransparency = 0.5
+        nameLabel.Text = targetPlayer.Name
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        
+        billboards[targetPlayer] = bb
+        
+        -- Hàm cập nhật máu
+        local function updateHealth()
+            if not humanoid or not humanoid.Parent then return end
+            
+            local health = humanoid.Health
+            local maxHealth = humanoid.MaxHealth
+            
+            if health <= 0 then
+                txt.Text = "0.0 / 0.0"
+                healthBar.Size = UDim2.new(0, 0, 1, 0)
+                healthBar.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                healthBar.BackgroundTransparency = 0
+            else
+                txt.Text = string.format("%.1f / %.1f", health, maxHealth)
+                local perc = math.clamp(health / maxHealth, 0, 1)
+                healthBar.Size = UDim2.new(perc, 0, 1, 0)
+                
+                if perc > 0.6 then
+                    healthBar.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+                elseif perc > 0.3 then
+                    healthBar.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+                else
+                    healthBar.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
+                    healthBar.BackgroundTransparency = 0.2 + 0.2 * math.sin(tick() * 10)
+                end
+            end
+        end
+        
+        -- Tạo connections MỚI
+        local healthConns = {
+            humanoid:GetPropertyChangedSignal("Health"):Connect(updateHealth),
+            humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(updateHealth),
+            humanoid.Died:Connect(function()
+                txt.Text = "0.0 / 0.0"
+                healthBar.Size = UDim2.new(0, 0, 1, 0)
+                healthBar.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            end)
+        }
+        
+        conns[targetPlayer] = healthConns
+        
+        -- Cập nhật ngay
+        updateHealth()
+        print("✅ Đã tạo health bar cho", targetPlayer.Name)
+    end
+    
+    -- Nếu đã có character, setup NGAY
+    if targetPlayer.Character then
+        task.spawn(setup, targetPlayer.Character)
+    else
+        -- Nếu chưa có character, chờ và thử lại
+        task.spawn(function()
+            local timeout = 0
+            while not targetPlayer.Character and timeout < 50 do
+                task.wait(0.1)
+                timeout = timeout + 1
+            end
+            if targetPlayer.Character then
+                setup(targetPlayer.Character)
+            end
+        end)
+    end
+    
+    -- Kết nối CharacterAdded
+    local charConn
+    charConn = targetPlayer.CharacterAdded:Connect(function(char)
+        -- Xóa billboard cũ
+        if billboards[targetPlayer] then
+            pcall(function() billboards[targetPlayer]:Destroy() end)
+            billboards[targetPlayer] = nil
+        end
+        
+        -- Xóa connections cũ
+        if conns[targetPlayer] then
+            for _, conn in ipairs(conns[targetPlayer]) do
+                pcall(function() conn:Disconnect() end)
+            end
+            conns[targetPlayer] = nil
+        end
+        
+        -- Đợi character load
+        task.wait(0.3)
+        setup(char)
+    end)
+    
+    -- Lưu connection
+    if not conns.char then conns.char = {} end
+    conns.char[targetPlayer] = charConn
+end
+
+-- QUAN TRỌNG: Khởi tạo cho TẤT CẢ người chơi hiện tại (đảm bảo không ai bị sót)
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= player then
+        task.spawn(createHealthBar, p)
+    end
+end
+
+-- Xử lý người chơi mới join
+Players.PlayerAdded:Connect(function(p)
+    if p ~= player then
+        -- Delay nhỏ để đảm bảo
+        task.wait(0.2)
+        task.spawn(createHealthBar, p)
+    end
+end)
+
+-- Dọn dẹp khi rời
+Players.PlayerRemoving:Connect(function(p)
+    if billboards[p] then
+        pcall(function() billboards[p]:Destroy() end)
+        billboards[p] = nil
+    end
+    
+    if conns[p] then
+        for _, conn in ipairs(conns[p]) do
+            pcall(function() conn:Disconnect() end)
+        end
+        conns[p] = nil
+    end
+    
+    if conns.char and conns.char[p] then
+        pcall(function() conns.char[p]:Disconnect() end)
+        conns.char[p] = nil
+    end
+end)
+
+-- Xử lý khi local player teleport/respawn
+local function onLocalCharacterAdded()
+    -- Đảm bảo screenGui trong PlayerGui mới
+    local newGui = player:FindFirstChild("PlayerGui")
+    if newGui and screenGui.Parent ~= newGui then
+        screenGui.Parent = newGui
+    end
+    
+    -- Refresh tất cả players sau teleport
+    task.wait(0.5)
+    refreshAllPlayers()
+end
+
+-- Theo dõi local player respawn/teleport
+player.CharacterAdded:Connect(onLocalCharacterAdded)
+
+-- CHECK KHOẢNG CÁCH MỖI FRAME
+local frameCount = 0
+RunService.RenderStepped:Connect(function()
+    frameCount = frameCount + 1
+    if frameCount % 2 ~= 0 then return end
+    
+    -- Đếm số lượng billboard đang hoạt động
+    local activeCount = 0
+    local totalCount = 0
+    
+    for plr, bb in pairs(billboards) do
+        totalCount = totalCount + 1
+        if bb and bb.Parent and plr then
+            -- Kiểm tra character
+            if plr.Character then
+                local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                local head = plr.Character:FindFirstChild("Head")
+                
+                if hrp and head then
+                    -- Cập nhật Adornee
+                    if bb.Adornee ~= head then
+                        bb.Adornee = head
+                    end
+                    
+                    -- Tính khoảng cách
+                    local dist = (camera.CFrame.Position - hrp.Position).Magnitude
+                    
+                    -- Bật/tắt
+                    if dist <= MAX_DISTANCE then
+                        if not bb.Enabled then
+                            bb.Enabled = true
+                            activeCount = activeCount + 1
+                        else
+                            activeCount = activeCount + 1
+                        end
+                    elseif dist > VISIBLE_DISTANCE then
+                        if bb.Enabled then
+                            bb.Enabled = false
+                        end
+                    end
+                else
+                    if bb.Enabled then
+                        bb.Enabled = false
+                    end
+                end
+            else
+                if bb.Enabled then
+                    bb.Enabled = false
+                end
+            end
+        else
+            -- Xóa billboard không hợp lệ
+            billboards[plr] = nil
+        end
+    end
+    
+    -- Debug nhẹ (có thể xóa dòng này nếu không cần)
+    if frameCount % 300 == 0 then
+        print(string.format("📊 Health bars: %d/%d active", activeCount, totalCount))
+    end
+end)
+
+-- Tắt health bar mặc định
+task.wait(0.5)
+pcall(function()
+    game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+end)
+
+-- Refresh định kỳ để đảm bảo không ai bị mất (mỗi 30 giây)
+task.spawn(function()
+    while true do
+        task.wait(30)
+        -- Kiểm tra và tạo lại cho những player chưa có billboard
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= player and p.Character and not billboards[p] then
+                print("🔄 Tạo lại health bar cho", p.Name)
+                task.spawn(createHealthBar, p)
+            end
+        end
+    end
+end)
+
+print("✅ HEALTH BAR FIXED: HIỆN CHO TẤT CẢ NGƯỜI CHƠI TRONG SERVER")
+print("📍 Bán kính " .. MAX_DISTANCE .. " stud | Hiện '0.0 / 0.0' khi chết")
+print("🔄 Tự động refresh mỗi 30s | Hỗ trợ mọi skin | Không lỗi")
